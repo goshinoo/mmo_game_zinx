@@ -17,6 +17,10 @@ func main() {
 		player.SyncPid()
 		//广播位置
 		player.BroadcastStartPosition()
+
+		//将新上线的玩家添加到worldManager中
+		core.WorldMgrObj.AddPlayer(player)
+
 		fmt.Println("====> Player Pid = ", player.Pid, " is arrived!")
 	})
 
