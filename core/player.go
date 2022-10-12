@@ -78,3 +78,65 @@ func (p *Player) BroadcastStartPosition() {
 	p.SendMsg(200, proto_msg)
 
 }
+
+// Talk 玩家广播世界聊天消息
+func (p *Player) Talk(content string) {
+	//组建MsgId:200 proto数据
+	proto_msg := &pb.BroadCast{
+		Pid:  p.Pid,
+		Tp:   1,
+		Data: &pb.BroadCast_Content{Content: content},
+	}
+	//得到当前世界所有在线玩家
+	players := WorldMgrObj.GetAllPlayers()
+
+	//向所有玩家(包括自己)发送200消息
+	for _, player := range players {
+		player.SendMsg(200, proto_msg)
+	}
+}
+
+func (p *Player) SyncSurrounding() {
+	//获取当前玩家周围有哪些玩家
+	pids := WorldMgrObj.AoiManager.GetPidsByPos(p.X, p.Z)
+	players := make([]*Player, 0, len(pids))
+	for _, pid := range pids {
+		players = append(players, WorldMgrObj.GetPlayerByPid(int32(pid)))
+	}
+	//将当前玩家位置信息通过MsgID:200发给周围玩家(让其他玩家看到自己)
+	proto_msg := &pb.BroadCast{
+		Pid: p.Pid,
+		Tp:  2,
+		Data: &pb.BroadCast_P{P: &pb.Position{
+			X: p.X,
+			Y: p.Y,
+			Z: p.Z,
+			V: p.V,
+		}},
+	}
+	for _, player := range players {
+		player.SendMsg(200, proto_msg)
+	}
+
+	//将周围全部玩家的位置信息发给当前玩家MsgId:202(让自己看到其他玩家)
+	//制作msgID:202数据
+	//制作pb.Player slice
+	players_proto_msg := make([]*pb.Player, 0, len(players))
+	for _, player := range players {
+		players_proto_msg = append(players_proto_msg, &pb.Player{
+			Pid: player.Pid,
+			P: &pb.Position{
+				X: player.X,
+				Y: player.Y,
+				Z: player.Z,
+				V: player.V,
+			},
+		})
+	}
+
+	//封装
+	syncPlayers_proto_msg := &pb.SyncPlayers{Ps: players_proto_msg}
+
+	//将组建好的数据发送给当前玩家客户端
+	p.SendMsg(202, syncPlayers_proto_msg)
+}
