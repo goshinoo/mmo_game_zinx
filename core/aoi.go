@@ -3,12 +3,12 @@ package core
 import "fmt"
 
 const (
-	AOI_MIN_X  = 85
-	AOI_MAX_X  = 410
-	AOI_CNTS_X = 10
-	AOI_MIN_Y  = 75
-	AOI_MAX_Y  = 400
-	AOI_CNTS_Y = 20
+	AOI_MIN_X  = 0
+	AOI_MAX_X  = 500
+	AOI_CNTS_X = 100
+	AOI_MIN_Y  = 0
+	AOI_MAX_Y  = 500
+	AOI_CNTS_Y = 100
 )
 
 // AOIManager AOI区域管理模块

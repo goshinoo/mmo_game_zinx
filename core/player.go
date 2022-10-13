@@ -31,9 +31,9 @@ func NewPlayer(conn ziface.IConnection) *Player {
 	return &Player{
 		Pid:  id,
 		Conn: conn,
-		X:    float32(160 + rand.Intn(10)), //随机坐标
+		X:    float32(250 + rand.Intn(5)), //随机坐标
 		Y:    0,
-		Z:    float32(140 + rand.Intn(20)), //随机坐标
+		Z:    float32(250 + rand.Intn(5)), //随机坐标
 		V:    0,
 	}
 }
@@ -41,6 +41,10 @@ func NewPlayer(conn ziface.IConnection) *Player {
 // SendMsg 提供一个发送给客户端的方法
 //主要是将pb的protobuf序列化之后再调用zinx的Sendmsg方法
 func (p *Player) SendMsg(msgId uint32, data proto.Message) {
+	if p == nil {
+		return
+	}
+
 	msg, err := proto.Marshal(data)
 	if err != nil {
 		fmt.Println("proto marshal err:", err)
@@ -139,4 +143,135 @@ func (p *Player) SyncSurrounding() {
 
 	//将组建好的数据发送给当前玩家客户端
 	p.SendMsg(202, syncPlayers_proto_msg)
+}
+
+func (p *Player) UpdatePos(X, Y, Z, V float32) {
+	//旧坐标
+	oldGid := WorldMgrObj.AoiManager.GetGidByPos(p.X, p.Z)
+
+	//更新坐标
+	p.X = X
+	p.Z = Z
+	p.V = V
+	p.Y = Y
+	newGid := WorldMgrObj.AoiManager.GetGidByPos(p.X, p.Z)
+
+	//判断玩家是否跨越格子
+	if newGid != oldGid {
+		//新九宫格
+		newgrids := WorldMgrObj.AoiManager.GetSurroundGridsByGid(newGid)
+		//旧九宫格
+		oldgrids := WorldMgrObj.AoiManager.GetSurroundGridsByGid(oldGid)
+
+		//属于旧九宫格但不属于新九宫格的格子内的玩家,需要处理视野消失
+		disappearGrids := make([]*Grid, 0, len(oldgrids))
+		for _, o := range oldgrids {
+			flg := false
+			for _, n := range newgrids {
+				if n == o {
+					flg = true
+				}
+			}
+			if !flg {
+				disappearGrids = append(disappearGrids, o)
+			}
+		}
+		syncPid_proto_msg := &pb.SyncPid{Pid: p.Pid}
+		for _, gid := range disappearGrids {
+			pids := WorldMgrObj.AoiManager.GetPidsByGid(gid.GID)
+			for _, pid := range pids {
+				player := WorldMgrObj.GetPlayerByPid(int32(pid))
+				//发送消失消息给其他玩家
+				player.SendMsg(201, syncPid_proto_msg)
+				//给自己发送其他玩家消失
+				p.SendMsg(201, &pb.SyncPid{Pid: int32(pid)})
+			}
+		}
+
+		//属于新九宫格但不属于旧九宫格内的玩家,需要处理视野的出现
+		appearGrids := make([]*Grid, 0, len(newgrids))
+		for _, o := range newgrids {
+			flg := false
+			for _, n := range oldgrids {
+				if n == o {
+					flg = true
+				}
+			}
+			if !flg {
+				appearGrids = append(appearGrids, o)
+			}
+		}
+		broadcast_proto_msg := &pb.BroadCast{
+			Pid: p.Pid,
+			Tp:  2,
+			Data: &pb.BroadCast_P{P: &pb.Position{
+				X: X,
+				Y: Y,
+				Z: Z,
+				V: V,
+			}},
+		}
+		for _, gid := range appearGrids {
+			pids := WorldMgrObj.AoiManager.GetPidsByGid(gid.GID)
+			for _, pid := range pids {
+				player := WorldMgrObj.GetPlayerByPid(int32(pid))
+				//发送同步消息给其他玩家
+				player.SendMsg(200, broadcast_proto_msg)
+				//给自己发送其他玩家出现
+				p.SendMsg(200, &pb.BroadCast{
+					Pid: player.Pid,
+					Tp:  2,
+					Data: &pb.BroadCast_P{P: &pb.Position{
+						X: player.X,
+						Y: player.Y,
+						Z: player.Z,
+						V: player.V,
+					}},
+				})
+			}
+		}
+
+		WorldMgrObj.AoiManager.RemovePidFromGrid(int(p.Pid), oldGid)
+		WorldMgrObj.AoiManager.AddPidToGrid(int(p.Pid), newGid)
+	}
+
+	//组建MsgId:200 proto数据
+	proto_msg := &pb.BroadCast{
+		Pid: p.Pid,
+		Tp:  4,
+		Data: &pb.BroadCast_P{P: &pb.Position{
+			X: X,
+			Y: Y,
+			Z: Z,
+			V: V,
+		}},
+	}
+
+	players := p.GetSurroundingPlayers()
+
+	for _, player := range players {
+		player.SendMsg(200, proto_msg)
+	}
+}
+
+// GetSurroundingPlayers 获取当前玩家周边九宫格之内的玩家
+func (p *Player) GetSurroundingPlayers() []*Player {
+	pids := WorldMgrObj.AoiManager.GetPidsByPos(p.X, p.Z)
+	list := make([]*Player, 0, len(pids))
+	for _, id := range pids {
+		list = append(list, WorldMgrObj.Players[int32(id)])
+	}
+	return list
+}
+
+func (p *Player) Offline() {
+	players := p.GetSurroundingPlayers()
+
+	proto_msg := &pb.SyncPid{Pid: p.Pid}
+
+	for _, player := range players {
+		player.SendMsg(201, proto_msg)
+	}
+
+	WorldMgrObj.RemovePlayer(p.Pid)
 }

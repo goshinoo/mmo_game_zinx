@@ -12,16 +12,18 @@ func main() {
 	s := znet.NewServer()
 
 	//连接创建和销毁hook钩子函数
-	s.SetOnConnStart(OnConnection)
+	s.SetOnConnStart(OnConnectionAdd)
+	s.SetOnConnStop(OnConnectionRemove)
 
 	//注册路由
 	s.AddRouter(2, &apis.WorldChatApi{})
+	s.AddRouter(3, &apis.MoveApi{})
 
 	//启动服务
 	s.Serve()
 }
 
-func OnConnection(connection ziface.IConnection) {
+func OnConnectionAdd(connection ziface.IConnection) {
 	player := core.NewPlayer(connection)
 
 	//同步pid
@@ -40,4 +42,19 @@ func OnConnection(connection ziface.IConnection) {
 	player.SyncSurrounding()
 
 	fmt.Println("====> Player Pid = ", player.Pid, " is arrived!")
+}
+
+func OnConnectionRemove(connection ziface.IConnection) {
+	pid, err := connection.GetProperty("pid")
+	if err != nil {
+		fmt.Println("connection get pid error: ", err)
+		return
+	}
+
+	player := core.WorldMgrObj.GetPlayerByPid(pid.(int32))
+
+	//触发玩家下线的业务
+	player.Offline()
+
+	fmt.Println("====> Player Pid = ", player.Pid, " offline...!")
 }
